@@ -1,9 +1,15 @@
+4. 
 # import the required libraries
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import ChatPromptTemplate
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_core.runnables import RunnablePassthrough
+from langchain_pinecone import PineconeVectorStore
 import tempfile
 import whisper
 from pytube import YouTube
@@ -13,8 +19,9 @@ from pytube import YouTube
 load_dotenv()
 
 openai_key = os.getenv("OPEN_API_KEY")
+pinecone_key = os.getenv("PINECONE_API_KEY")
 
-youtube_video_url = "https://www.youtube.com/watch?v=cdiD-9MMpb0"
+youtube_video_url = "https://www.youtube.com/watch?v=BrsocJb-fAo"
 
 # create a model
 model = ChatOpenAI(openai_api_key=openai_key, model="gpt-4o")
@@ -34,15 +41,7 @@ template = """
 # create a prompt object, this will pass the context and question to the template
 promt = ChatPromptTemplate.from_template(template)
 
-# create a chain
-chain = promt | model | parser
-
-# invoke the chain: this will invoke the model and then parse the output: output of first model will be input to the second one
-print(chain.invoke({"context": "Mery's sister is susan", "question": "Who is Mary's sister?"}))
-
-
 # let's create a transcript from the youtube video
-
 if not os.path.exists("transcripts.txt"):
     youtube = YouTube(youtube_video_url)
     audio = youtube.streams.filter(only_audio=True).first()
@@ -59,4 +58,38 @@ if not os.path.exists("transcripts.txt"):
 with open("transcripts.txt", "r") as f:
     transcript = f.read()
 
-print(transcript[: 100])
+
+# Split the transcript: there is a limit to the number of tokens that can be passed to the model so we need to split the transcript, let's say transcript can be in gb so we need to split it into smaller chunks
+# 1. Convert text to text documents
+
+loader = TextLoader('transcripts.txt')
+text_documents = loader.load()
+
+# 2. Split the text documents into smaller chunks
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
+text_documents_chunks = text_splitter.split_documents(text_documents)
+
+
+# Generate embeddings for the text text_documents_chunks: this will help to generate embeddings for the text chunks and then we can use the embeddings to find the most relevant text chunk to the question
+
+# Cohere playground is a good place to play arounds documents and see embeddings
+
+embeddings = OpenAIEmbeddings(api_key=openai_key)
+
+# Setup the pipeline vector database 
+index_name = "youtube-rag-index"
+
+pinecone = PineconeVectorStore.from_documents(documents=text_documents_chunks, embedding=embeddings, pinecone_api_key=pinecone_key, index_name=index_name)
+
+chain = (
+    {
+        "context": pinecone.as_retriever(),
+        "question": RunnablePassthrough()
+    }
+    | promt 
+    | model 
+    | parser
+)
+
+
+print(chain.invoke('What is RAG Application?'))
