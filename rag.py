@@ -1,4 +1,3 @@
-4. 
 # import the required libraries
 import os
 from dotenv import load_dotenv
