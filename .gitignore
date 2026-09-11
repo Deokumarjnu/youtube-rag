@@ -1,5 +1,16 @@
-.venv
-venv/*
+# .gitignore
+
+__pycache__/
+.venv/
+node_modules/
 .env
-env/*
-transcripts.txt
+.env.*
+dist/
+build/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.vscode/
+.cache
+
